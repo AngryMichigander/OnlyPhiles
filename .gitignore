@@ -1,0 +1,15 @@
+.wrangler/
+node_modules/
+data/raw/
+data/enrich-progress.json
+data/enrich.log
+data/goppredators-full.txt
+data/goppredators-parsed.json
+data/goppredators-raw.txt
+data/goppredators-urls.txt
+data/dailykos-raw/
+worker/seed-clean.sql
+worker/seed-crimetypes.sql
+worker/seed.sql
+pal_generated.code
+**/CLAUDE.md

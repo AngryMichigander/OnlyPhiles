@@ -1,0 +1,62 @@
+Found 1511 entries with goppredators sources
+[25/1511] enriched=25 errors=0
+[50/1511] enriched=50 errors=0
+[75/1511] enriched=75 errors=1
+[100/1511] enriched=100 errors=2
+[125/1511] enriched=125 errors=2
+[150/1511] enriched=150 errors=3
+[175/1511] enriched=175 errors=5
+[200/1511] enriched=200 errors=8
+[225/1511] enriched=225 errors=8
+[250/1511] enriched=250 errors=8
+[275/1511] enriched=275 errors=8
+[300/1511] enriched=300 errors=10
+[325/1511] enriched=325 errors=10
+[350/1511] enriched=350 errors=12
+[375/1511] enriched=375 errors=12
+[400/1511] enriched=400 errors=14
+[425/1511] enriched=425 errors=14
+[450/1511] enriched=450 errors=14
+[475/1511] enriched=475 errors=15
+[500/1511] enriched=500 errors=15
+[525/1511] enriched=525 errors=17
+[550/1511] enriched=550 errors=17
+[575/1511] enriched=575 errors=17
+[600/1511] enriched=600 errors=17
+[625/1511] enriched=625 errors=18
+[650/1511] enriched=650 errors=18
+[675/1511] enriched=675 errors=18
+[700/1511] enriched=700 errors=18
+[725/1511] enriched=725 errors=18
+[750/1511] enriched=750 errors=18
+[775/1511] enriched=775 errors=19
+[800/1511] enriched=800 errors=22
+[825/1511] enriched=825 errors=39
+[850/1511] enriched=850 errors=41
+[875/1511] enriched=875 errors=41
+[900/1511] enriched=900 errors=41
+[925/1511] enriched=925 errors=41
+[950/1511] enriched=950 errors=42
+[975/1511] enriched=975 errors=44
+[1000/1511] enriched=1000 errors=46
+[1025/1511] enriched=1025 errors=48
+[1050/1511] enriched=1050 errors=52
+[1075/1511] enriched=1075 errors=52
+[1100/1511] enriched=1100 errors=56
+[1125/1511] enriched=1125 errors=56
+[1150/1511] enriched=1150 errors=56
+[1175/1511] enriched=1175 errors=57
+[1200/1511] enriched=1200 errors=57
+[1225/1511] enriched=1225 errors=57
+[1250/1511] enriched=1250 errors=57
+[1275/1511] enriched=1275 errors=61
+[1300/1511] enriched=1300 errors=61
+[1325/1511] enriched=1324 errors=62
+[1350/1511] enriched=1349 errors=65
+[1375/1511] enriched=1374 errors=66
+[1400/1511] enriched=1399 errors=67
+[1425/1511] enriched=1424 errors=67
+
+Done! 1444 processed, 1443 enriched, 67 errors
+=== STATUS Fri Mar 13 21:01:52 EDT 2026 ===
+Progress: 1510 done, 1443 enriched

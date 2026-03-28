@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OnlyPhiles — Public Accountability Tracker</title>
+  <meta name="description" content="A public accountability database tracking Republican politicians with sex crimes against children. Real people. Real crimes. Real sources.">
+  <link rel="stylesheet" href="style.css">
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <script src="app.js" defer></script>
+</head>
+<body>
+
+  <header class="site-header">
+    <div class="header-inner">
+      <h1><a href="/" class="site-title">OnlyPhiles</a></h1>
+      <nav class="header-nav">
+        <a href="/" class="nav-link active">Database</a>
+        <a href="/about.html" class="nav-link">About</a>
+      </nav>
+    </div>
+  </header>
+
+  <div class="stats-bar">
+    <div class="stat">
+      <div class="stat-number" id="stat-total">—</div>
+      <div class="stat-label">Total Entries</div>
+    </div>
+    <div class="stat stat-convicted">
+      <div class="stat-number" id="stat-convicted">—</div>
+      <div class="stat-label">Convicted</div>
+    </div>
+    <div class="stat stat-charged">
+      <div class="stat-number" id="stat-charged">—</div>
+      <div class="stat-label">Charged</div>
+    </div>
+    <div class="stat stat-alleged">
+      <div class="stat-number" id="stat-alleged">—</div>
+      <div class="stat-label">Alleged</div>
+    </div>
+  </div>
+
+  <button class="mobile-filter-toggle">Filters &amp; Search</button>
+
+  <div class="main-layout">
+
+    <aside class="filters">
+
+      <div class="filter-section">
+        <h3>Search</h3>
+        <input type="text" class="search-input" id="filter-search" placeholder="Name, office, keyword...">
+      </div>
+
+      <div class="filter-section">
+        <h3>Status</h3>
+        <div class="filter-tabs" role="group" aria-label="Filter by status">
+          <button class="filter-tab active" data-status-tab="all" aria-pressed="true">All</button>
+          <button class="filter-tab" data-status-tab="convicted" aria-pressed="false">Convicted</button>
+          <button class="filter-tab" data-status-tab="charged" aria-pressed="false">Charged</button>
+          <button class="filter-tab" data-status-tab="alleged" aria-pressed="false">Alleged</button>
+        </div>
+      </div>
+
+      <div class="filter-section">
+        <h3>Level</h3>
+        <div class="filter-checkbox-group">
+          <label><input type="checkbox" value="federal" data-filter="level"> Federal</label>
+          <label><input type="checkbox" value="state" data-filter="level"> State</label>
+          <label><input type="checkbox" value="local" data-filter="level"> Local</label>
+          <label><input type="checkbox" value="party-official" data-filter="level"> Party Official</label>
+        </div>
+      </div>
+
+      <div class="filter-section">
+        <h3>State</h3>
+        <select class="filter-select" id="filter-state">
+          <option value="all">All States</option>
+        </select>
+      </div>
+
+      <div class="filter-section">
+        <h3>Crime Type</h3>
+        <div class="filter-checkbox-group" id="filter-crime-types"></div>
+      </div>
+
+      <div class="filter-section">
+        <h3>Still in Office</h3>
+        <div class="filter-tabs" role="group" aria-label="Filter by office status">
+          <button class="filter-tab active" data-office-tab="all" aria-pressed="true">All</button>
+          <button class="filter-tab" data-office-tab="yes" aria-pressed="false">Yes</button>
+          <button class="filter-tab" data-office-tab="no" aria-pressed="false">No</button>
+        </div>
+      </div>
+
+      <div class="filter-section">
+        <h3>Sort By</h3>
+        <select class="filter-select sort-select" id="filter-sort">
+          <option value="name">Name</option>
+          <option value="status">Status</option>
+          <option value="year">Year (newest first)</option>
+          <option value="state">State</option>
+        </select>
+      </div>
+
+    </aside>
+
+    <main class="content">
+      <div class="results-bar">
+        <span id="results-count">Loading...</span>
+      </div>
+      <div class="cards-grid" id="cards-grid"></div>
+    </main>
+
+  </div>
+
+</body>
+</html>

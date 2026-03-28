@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin — OnlyPhiles</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+  <style>
+    .admin-wrap { max-width: 900px; margin: 0 auto; padding: 1.5rem; }
+    .search-bar { display: flex; gap: 0.5rem; margin-bottom: 1.5rem; }
+    .search-bar input { flex: 1; padding: 0.6rem 0.9rem; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-size: 1rem; }
+    .search-bar button { padding: 0.6rem 1.2rem; background: var(--accent); color: #fff; border: none; border-radius: 6px; cursor: pointer; font-size: 0.95rem; }
+    .search-bar button:hover { opacity: 0.85; }
+    .results-list { list-style: none; padding: 0; margin: 0 0 1.5rem; }
+    .results-list li { padding: 0.6rem 0.9rem; border-bottom: 1px solid var(--border); cursor: pointer; color: var(--text-muted); border-radius: 4px; display: flex; justify-content: space-between; align-items: center; }
+    .results-list li:hover { background: var(--surface); color: var(--text); }
+    .results-list li.active { background: var(--surface); color: var(--text); border-left: 3px solid var(--accent); }
+    .results-list li .meta { font-size: 0.8rem; color: var(--text-dim); }
+    .results-list .edit-panel { cursor: default; display: none; padding: 0; border-bottom: 1px solid var(--border); }
+    .edit-panel { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 1.5rem; display: none; }
+    .edit-panel.visible { display: block; }
+    .pagination { display: none; align-items: center; justify-content: center; gap: 1rem; margin-bottom: 1.5rem; }
+    .pagination button { padding: 0.4rem 0.9rem; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; color: var(--text-muted); cursor: pointer; font-size: 0.85rem; }
+    .pagination button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+    .pagination button:disabled { opacity: 0.4; cursor: default; }
+    .pagination .page-info { font-size: 0.85rem; color: var(--text-dim); }
+    .edit-panel h2 { margin: 0 0 1.25rem; font-size: 1.2rem; color: var(--text); }
+    .field-group { margin-bottom: 1rem; }
+    .field-group label { display: block; font-size: 0.8rem; color: var(--text-dim); margin-bottom: 0.3rem; text-transform: uppercase; letter-spacing: 0.05em; }
+    .field-group input, .field-group select, .field-group textarea { width: 100%; padding: 0.55rem 0.8rem; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-size: 0.9rem; box-sizing: border-box; }
+    .field-group textarea { min-height: 100px; resize: vertical; font-family: inherit; }
+    .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+    .sources-list { display: flex; flex-direction: column; gap: 0.4rem; }
+    .source-item { display: flex; gap: 0.5rem; align-items: center; }
+    .source-item input { flex: 1; }
+    .source-item button { padding: 0.4rem 0.7rem; background: var(--convicted); color: #fff; border: none; border-radius: 5px; cursor: pointer; font-size: 0.8rem; flex-shrink: 0; }
+    .add-source-btn { margin-top: 0.5rem; padding: 0.4rem 0.9rem; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; color: var(--text-muted); cursor: pointer; font-size: 0.85rem; }
+    .add-source-btn:hover { border-color: var(--accent); color: var(--accent); }
+    .action-bar { display: flex; gap: 0.75rem; margin-top: 1.5rem; align-items: center; }
+    .btn-save { padding: 0.65rem 1.5rem; background: var(--accent); color: #fff; border: none; border-radius: 6px; cursor: pointer; font-size: 0.95rem; font-weight: 600; }
+    .btn-save:hover { opacity: 0.85; }
+    .btn-save:disabled { opacity: 0.5; cursor: default; }
+    .save-status { font-size: 0.85rem; color: var(--text-dim); }
+    .save-status.ok { color: #42be65; }
+    .save-status.err { color: var(--convicted); }
+    .no-results { color: var(--text-dim); padding: 0.5rem 0; font-size: 0.9rem; }
+  </style>
+</head>
+<body>
+  <header class="site-header">
+    <div class="header-inner">
+      <a href="/" class="site-title">OnlyPhiles</a>
+      <nav class="header-nav">
+        <a href="/" class="nav-link">Database</a>
+        <a href="/about.html" class="nav-link">About</a>
+        <a href="/admin.html" class="nav-link active">Admin</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="admin-wrap">
+    <h1 style="margin-bottom:1.25rem;font-size:1.5rem;">Admin — Edit Entries</h1>
+
+    <div class="search-bar">
+      <input type="text" id="admin-search" placeholder="Search by name…" autocomplete="off">
+      <button id="admin-search-btn">Search</button>
+    </div>
+
+    <ul class="results-list" id="admin-results"></ul>
+
+    <div class="pagination" id="pagination">
+      <button id="prev-btn">← Prev</button>
+      <span class="page-info" id="page-info">Page 1 of 1</span>
+      <button id="next-btn">Next →</button>
+    </div>
+
+    <div id="edit-panel-parking" style="display:none;">
+    <section class="edit-panel" id="edit-panel">
+      <h2 id="edit-title">Edit Entry</h2>
+
+      <div class="field-row">
+        <div class="field-group">
+          <label>Name</label>
+          <input type="text" id="f-name">
+        </div>
+        <div class="field-group">
+          <label>State</label>
+          <input type="text" id="f-state" maxlength="30">
+        </div>
+      </div>
+
+      <div class="field-row">
+        <div class="field-group">
+          <label>Status</label>
+          <select id="f-status">
+            <option value="convicted">Convicted</option>
+            <option value="charged">Charged</option>
+            <option value="alleged">Alleged</option>
+          </select>
+        </div>
+        <div class="field-group">
+          <label>Level</label>
+          <select id="f-level">
+            <option value="federal">Federal</option>
+            <option value="state">State</option>
+            <option value="local">Local</option>
+            <option value="party-official">Party Official</option>
+            <option value="adjacent">Adjacent</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="field-group">
+        <label>Office / Role</label>
+        <input type="text" id="f-office" placeholder="e.g. State Senator, Sheriff, Pastor">
+      </div>
+
+      <div class="field-row">
+        <div class="field-group">
+          <label>Event Date (YYYY-MM-DD)</label>
+          <input type="text" id="f-event-date" placeholder="2022-11-14">
+        </div>
+        <div class="field-group">
+          <label>Conviction Year</label>
+          <input type="number" id="f-conviction-year" placeholder="2022" min="1980" max="2030">
+        </div>
+      </div>
+
+      <div class="field-group">
+        <label>Summary</label>
+        <textarea id="f-summary"></textarea>
+      </div>
+
+      <div class="field-group">
+        <label>Sources (one per line — remove dead links, add better ones)</label>
+        <div class="sources-list" id="sources-list"></div>
+        <button class="add-source-btn" id="add-source-btn">+ Add source</button>
+      </div>
+
+      <div class="action-bar">
+        <button class="btn-save" id="save-btn">Save Changes</button>
+        <span class="save-status" id="save-status"></span>
+      </div>
+    </section>
+    </div>
+  </main>
+
+  <script src="/admin.js" defer></script>
+</body>
+</html>

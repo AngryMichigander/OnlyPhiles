@@ -1,0 +1,17 @@
+name = "onlyphiles"
+main = "worker/index.js"
+compatibility_date = "2024-01-01"
+assets = { directory = "./public" }
+
+[[d1_databases]]
+binding = "DB"
+database_name = "onlyphiles"
+database_id = "5624c86d-e5b6-4808-90c6-2356fdd5033a"
+
+[env.preview]
+workers_dev = true
+assets = { directory = "./public" }
+[[env.preview.d1_databases]]
+binding = "DB"
+database_name = "onlyphiles-staging"
+database_id = "08d75b1a-e7ff-47de-b4c5-849d514ce3b4"

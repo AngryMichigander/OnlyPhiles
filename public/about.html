@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>About — OnlyPhiles</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <style>
+    .about-container {
+      max-width: 760px;
+      margin: 0 auto;
+      padding: 2rem 1.5rem 4rem;
+    }
+    .about-container h1 {
+      font-size: 2rem;
+      margin-bottom: 0.25rem;
+      color: var(--text);
+    }
+    .about-container h2 {
+      font-size: 1.2rem;
+      margin: 2rem 0 0.75rem;
+      color: var(--accent);
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 0.4rem;
+    }
+    .about-container p {
+      color: var(--text-muted);
+      line-height: 1.75;
+      margin-bottom: 1rem;
+    }
+    .about-container a {
+      color: var(--accent);
+    }
+    .about-container a:hover {
+      text-decoration: underline;
+    }
+    .source-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1.25rem 1.5rem;
+      margin-bottom: 1rem;
+    }
+    .source-card h3 {
+      margin: 0 0 0.5rem;
+      font-size: 1rem;
+      color: var(--text);
+    }
+    .source-card p {
+      margin: 0;
+      font-size: 0.9rem;
+    }
+    .nav-back {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      color: var(--text-dim);
+      text-decoration: none;
+      font-size: 0.9rem;
+      margin-bottom: 2rem;
+    }
+    .nav-back:hover { color: var(--text-muted); }
+    .disclaimer {
+      background: color-mix(in srgb, var(--alleged) 15%, transparent);
+      border: 1px solid color-mix(in srgb, var(--alleged) 40%, transparent);
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      font-size: 0.875rem;
+      color: var(--text-muted);
+      margin-top: 2rem;
+    }
+  </style>
+</head>
+<body>
+  <header class="site-header">
+    <div class="header-inner">
+      <h1 class="site-header-title"><a href="/" class="site-title">OnlyPhiles</a></h1>
+      <nav class="header-nav">
+        <a href="/" class="nav-link">Database</a>
+        <a href="/about.html" class="nav-link active">About</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="about-container">
+    <a href="/" class="nav-back">← Back to database</a>
+
+    <h1>About OnlyPhiles</h1>
+    <p>
+      OnlyPhiles is a public accountability database documenting Republican politicians, officials,
+      and party-adjacent figures who have been accused, charged, or convicted of sexual offenses —
+      particularly crimes against children.
+    </p>
+    <p>
+      This site exists because accountability requires visibility. These are public figures who
+      sought or held positions of public trust. Their records should be searchable and accessible.
+    </p>
+
+    <h2>Data Sources</h2>
+    <p>
+      This database would not exist without the painstaking work of others who documented these
+      cases long before we did. We are deeply grateful to:
+    </p>
+
+    <div class="source-card">
+      <h3>📰 Daily Kos — <em>Republican Sexual Predators, Abusers, and Enablers</em> series</h3>
+      <p>
+        An ongoing investigative series published on <a href="https://www.dailykos.com" target="_blank" rel="noopener">Daily Kos</a>
+        that has documented Republican sex offenders across dozens of installments since 2018.
+        The series is meticulous, sourced, and unflinching. It is some of the most important
+        accountability journalism being done on this topic.
+        <br><br>
+        <a href="https://www.dailykos.com/stories/2018/10/23/1806673/-Republican-Sexual-Predators-Abusers-and-Enablers-Exposed" target="_blank" rel="noopener">
+          Read the series →
+        </a>
+      </p>
+    </div>
+
+    <div class="source-card">
+      <h3>🗂️ GOP Predators — <a href="https://goppredators.wordpress.com" target="_blank" rel="noopener">goppredators.wordpress.com</a></h3>
+      <p>
+        An extensive WordPress archive that has catalogued over 1,500 individual Republican sex
+        offenders, each with their own post containing a summary, office held, and news source links.
+        The sheer scope of this resource is staggering, and the maintainer(s) deserve enormous credit
+        for keeping it updated.
+        <br><br>
+        The majority of entries in this database were sourced from their archive.
+        <br><br>
+        <a href="https://goppredators.wordpress.com" target="_blank" rel="noopener">Visit the archive →</a>
+      </p>
+    </div>
+
+    <h2>How it works</h2>
+    <p>
+      Each entry is categorized by status (convicted, charged, or alleged), political level
+      (federal, state, local, party official, or adjacent), and crime type. Source links
+      are included for every entry where available.
+    </p>
+    <p>
+      The "alleged" designation is used where charges have not been filed or a conviction
+      has not occurred. Inclusion is based on credible news reporting.
+    </p>
+
+    <div class="disclaimer">
+      <strong>Legal note:</strong> All persons are presumed innocent until proven guilty in a court of law.
+      Entries marked "alleged" or "charged" reflect accusations only. Source links are provided
+      for all entries so readers can review the underlying reporting.
+    </div>
+
+    <h2>Contact</h2>
+    <p>
+      Found an error, a missing entry, or want to submit a correction?
+      The underlying data is sourced from public news reporting. We aim to be accurate.
+    </p>
+  </main>
+</body>
+</html>
