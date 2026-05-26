@@ -1,6 +1,8 @@
 {
   "private": true,
   "scripts": {
+    "predeploy": "git submodule update --init --recursive && node scripts/inject-footer.mjs",
+    "deploy": "wrangler deploy",
     "test": "vitest run",
     "test:watch": "vitest"
   },
