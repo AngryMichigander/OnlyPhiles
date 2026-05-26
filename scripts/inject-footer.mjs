@@ -3,7 +3,8 @@ import { readFile, writeFile } from "node:fs/promises";
 
 const manifest = JSON.parse(await readFile("vendor/network-manifest/network.json", "utf8"));
 const hub = manifest.sites.find((s) => s.role === "hub");
-const members = manifest.sites.filter((s) => s.role !== "hub");
+const SELF_URL = "https://onlyphiles.com";
+const members = manifest.sites.filter((s) => s.role !== "hub" && s.url !== SELF_URL);
 
 const linkHTML = (s) => `<a href="${s.url}">${s.name}</a>`;
 const footerHTML = `<footer class="network-footer"><p>Part of the <a href="${hub.url}">${manifest.network_name}</a> — ${members.map(linkHTML).join(" · ")}</p></footer>`;
