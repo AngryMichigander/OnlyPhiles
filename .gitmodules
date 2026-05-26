@@ -1,4 +1,4 @@
 [submodule "vendor/network-manifest"]
 	path = vendor/network-manifest
-	url = git@github.com:AngryMichigander/network-manifest.git
+	url = https://github.com/AngryMichigander/network-manifest.git
 	branch = main
