@@ -511,3 +511,21 @@ h2.card-name,
 .site-title:hover {
   text-decoration: none;
 }
+
+/* Network footer */
+.network-footer {
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+  padding: 1rem 1.5rem;
+  text-align: center;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  font-size: 0.85rem;
+  color: var(--text-dim);
+}
+.network-footer a {
+  color: var(--accent);
+  text-decoration: none;
+}
+.network-footer a:hover {
+  text-decoration: underline;
+}
