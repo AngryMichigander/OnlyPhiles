@@ -3,12 +3,22 @@
 
   const CRIME_LABELS = {
     csam: "CSAM",
+    "child-molestation": "Child Molestation",
+    "statutory-rape": "Statutory Rape",
     assault: "Sexual Assault",
+    rape: "Rape",
     trafficking: "Trafficking",
     solicitation: "Solicitation",
-    "statutory-rape": "Statutory Rape",
     grooming: "Grooming",
+    "indecent-exposure": "Indecent Exposure",
+    incest: "Incest",
+    stalking: "Stalking",
+    harassment: "Harassment",
+    "domestic-violence": "Domestic Violence",
+    murder: "Murder",
+    "organizational-coverup": "Organizational Cover-up",
     enablement: "Enablement",
+    other: "Other",
   };
 
   const LEVEL_LABELS = {
