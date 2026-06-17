@@ -142,6 +142,24 @@ node scripts/enrich-full.js          # Full enrichment (summary, office, etc.)
 node scripts/extract-dates.js        # Extract event dates from cached HTML
 ```
 
+### Data quality audit
+
+Run read-only audits against the canonical data. These scripts never mutate `data/people.json`, `worker/seed.sql`, or the D1 database.
+
+```bash
+npm run data:audit          # Run all three audit scripts (inventory, flag-list, defamation-risk)
+npm run data:source-liveness  # Probe all source URLs for liveness (15–30 min for full run)
+npm run data:audit:all      # Run all audits including source-liveness probe
+```
+
+Output files (not committed — live under `.omo/research/`):
+- `.omo/research/data-audit-2026-06-17.md` — master inventory report (also committed at `docs/audits/data-audit-2026-06-17.md`)
+- `.omo/research/flagged-entries.csv` — prioritized flag-list with P0–P3 severity ratings
+- `.omo/research/source-liveness.csv` — HTTP probe results for all source URLs
+- `.omo/research/defamation-risk-flagged.md` — neutral-language smell-test report
+
+Data-quality regression tests live in `tests/data-quality.test.js`. Ratchet baselines are stored in `tests/data-quality.baselines.json` — counts can only shrink, never grow.
+
 ## Data Schema (people.json)
 
 | Field | Type | Required | Description |

@@ -4,7 +4,10 @@
     "predeploy": "git submodule update --init --recursive && node scripts/inject-footer.mjs",
     "deploy": "wrangler deploy",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "data:audit": "node scripts/audit-data.mjs && node scripts/audit-flag-list.mjs && node scripts/audit-defamation-risk.mjs",
+    "data:source-liveness": "node scripts/audit-sources.mjs",
+    "data:audit:all": "npm run data:audit && npm run data:source-liveness"
   },
   "devDependencies": {
     "vitest": "^3.0.0"
