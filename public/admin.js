@@ -27,6 +27,9 @@ async function search(page = 1) {
   try {
     const params = new URLSearchParams({ limit: '50', page: String(page) });
     if (q) params.set('q', q);
+    if ($('filter-flagged').checked) params.set('flaggedOnly', '1');
+    if ($('filter-unreviewed').checked) params.set('unreviewedOnly', '1');
+    if ($('filter-hidden').checked) params.set('hiddenOnly', '1');
     const data = await apiGet(`/api/admin/people?${params}`);
     currentPage = data.page;
     totalPages = data.pages;
@@ -38,7 +41,7 @@ async function search(page = 1) {
     list.innerHTML = data.results.map(p => `
       <li data-id="${p.id}">
         <span>${escHtml(p.name)}</span>
-        <span class="meta">${escHtml(p.state || '')} · ${escHtml(p.status)}</span>
+        <span class="meta">${rowBadges(p)} ${escHtml(p.state || '')} · ${escHtml(p.status)}</span>
       </li>`).join('');
   } catch(e) {
     const li = document.createElement('li');
@@ -89,6 +92,7 @@ async function loadPerson(id, li) {
   try {
     const p = await apiGet(`/api/admin/people/${id}`);
     $('edit-title').textContent = p.name;
+    updateLastReviewedDisplay(p.lastReviewedAt);
     $('f-name').value = p.name || '';
     $('f-state').value = p.state || '';
     $('f-status').value = p.status || 'alleged';
@@ -97,6 +101,8 @@ async function loadPerson(id, li) {
     $('f-event-date').value = p.eventDate || '';
     $('f-conviction-year').value = p.convictionYear || '';
     $('f-summary').value = p.summary || '';
+    $('f-enabled').checked = p.enabled === false;
+    $('f-flagged-reason').value = p.flaggedReason || '';
     renderSources(p.sources || []);
     $('save-status').textContent = '';
     $('save-btn').disabled = false;
@@ -129,6 +135,23 @@ function renderSources(sources) {
 function escHtml(s) {
   if (!s) return '';
   return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+function updateLastReviewedDisplay(iso) {
+  const el = $('last-reviewed-display');
+  if (!iso) {
+    el.textContent = 'Never reviewed';
+  } else {
+    el.textContent = `Last reviewed: ${iso.slice(0, 16).replace('T', ' ')} UTC`;
+  }
+}
+
+function rowBadges(p) {
+  const badges = [];
+  if (p.enabled === false) badges.push('<span class="badge badge-hidden">hidden</span>');
+  if (p.flaggedReason) badges.push('<span class="badge badge-flagged">flagged</span>');
+  if (!p.lastReviewedAt) badges.push('<span class="badge badge-unreviewed">unreviewed</span>');
+  return badges.join(' ');
 }
 
 // Event delegation for dynamic elements
@@ -164,9 +187,9 @@ $('save-btn').addEventListener('click', async () => {
 
   const newName = $('f-name').value.trim();
 
+  let updatedPerson;
   try {
-    // Save person fields
-    await apiPatch(`/api/admin/people/${currentId}`, {
+    updatedPerson = await apiPatch(`/api/admin/people/${currentId}`, {
       name: newName,
       state: $('f-state').value.trim(),
       status: $('f-status').value,
@@ -175,6 +198,8 @@ $('save-btn').addEventListener('click', async () => {
       event_date: $('f-event-date').value.trim() || null,
       conviction_year: $('f-conviction-year').value ? parseInt($('f-conviction-year').value) : null,
       summary: $('f-summary').value.trim(),
+      enabled: !$('f-enabled').checked,
+      flagged_reason: $('f-flagged-reason').value.trim() || null,
     });
   } catch(e) {
     status.textContent = 'Error saving fields: ' + e.message;
@@ -183,10 +208,16 @@ $('save-btn').addEventListener('click', async () => {
     return;
   }
 
-  // Update UI after fields saved successfully
   const activeLi = document.querySelector(`#admin-results li[data-id="${CSS.escape(currentId)}"]`);
-  if (activeLi) activeLi.querySelector('span').textContent = newName;
+  if (activeLi) {
+    activeLi.querySelector('span').textContent = newName;
+    const metaSpan = activeLi.querySelector('.meta');
+    if (metaSpan) {
+      metaSpan.innerHTML = `${rowBadges(updatedPerson)} ${escHtml(updatedPerson.state || '')} · ${escHtml(updatedPerson.status)}`;
+    }
+  }
   $('edit-title').textContent = newName;
+  updateLastReviewedDisplay(updatedPerson.lastReviewedAt);
 
   try {
     // Save sources
@@ -211,5 +242,37 @@ $('admin-search-btn').addEventListener('click', () => search(1));
 $('prev-btn').addEventListener('click', () => { if (currentPage > 1) search(currentPage - 1); });
 $('next-btn').addEventListener('click', () => { if (currentPage < totalPages) search(currentPage + 1); });
 
-// Load all entries on page load
+$('mark-unreviewed-btn').addEventListener('click', async () => {
+  if (!currentId) return;
+  const btn = $('mark-unreviewed-btn');
+  const status = $('save-status');
+  btn.disabled = true;
+  status.textContent = '';
+  try {
+    await apiPatch(`/api/admin/people/${currentId}`, { last_reviewed_at: null });
+    updateLastReviewedDisplay(null);
+    const activeLi = document.querySelector(`#admin-results li[data-id="${CSS.escape(currentId)}"]`);
+    const metaSpan = activeLi?.querySelector('.meta');
+    if (metaSpan) {
+      const inferred = {
+        enabled: !$('f-enabled').checked,
+        flaggedReason: $('f-flagged-reason').value.trim() || null,
+        lastReviewedAt: null,
+      };
+      metaSpan.innerHTML = `${rowBadges(inferred)} ${escHtml($('f-state').value.trim() || '')} · ${escHtml($('f-status').value)}`;
+    }
+    status.textContent = '✓ Marked unreviewed';
+    status.className = 'save-status ok';
+  } catch(e) {
+    status.textContent = 'Error: ' + e.message;
+    status.className = 'save-status err';
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+['filter-flagged', 'filter-unreviewed', 'filter-hidden'].forEach(id => {
+  $(id).addEventListener('change', () => search(1));
+});
+
 search();
