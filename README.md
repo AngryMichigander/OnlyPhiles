@@ -43,7 +43,7 @@ scripts/
   extract-dates.js      Extracts event dates from cached raw HTML
   lib/extract-links.js  Shared HTML link extraction utility
 
-tests/                  Vitest test suite (67 tests)
+tests/                  Vitest test suite (108 tests)
 data/people.json        Canonical source data
 ```
 
@@ -68,7 +68,7 @@ npx wrangler dev
 ### Testing
 
 ```bash
-npm test            # Run all 67 tests
+npm test            # Run all 108 tests
 npm run test:watch  # Watch mode
 ```
 
@@ -79,7 +79,7 @@ Tests cover worker API routing, response formatting, SQL helpers, and link extra
 Deployment is automated via GitHub Actions:
 
 **Production** (`.github/workflows/deploy.yml` — push to main):
-1. Runs tests (67 vitest tests)
+1. Runs tests (108 vitest tests)
 2. Validates schema + seed against staging D1 database (smoke test: row counts + orphan FK checks)
 3. Conditionally applies schema/seed to production D1 (only when those files change)
 4. Deploys Worker and Pages to production
@@ -99,6 +99,26 @@ npx wrangler d1 execute onlyphiles --remote --file=worker/schema.sql  # Apply sc
 npx wrangler d1 execute onlyphiles --remote --file=worker/seed.sql    # Apply seed
 ```
 
+#### Migrations
+
+Migrations under `worker/migrations/` are additive changes to existing D1 databases — they are NOT applied automatically by the deploy pipeline. Apply each once, in order, after a PR introducing it has merged:
+
+```bash
+# Phase B: add review-tracking columns + indexes
+npx wrangler d1 execute onlyphiles --remote \
+  --file=worker/migrations/001_add_review_fields.sql
+
+# Phase B: seed flagged_reason from Phase 1 audit findings (idempotent —
+# every UPDATE guards on `AND flagged_reason IS NULL`, so re-runs and
+# admin-authored reasons are preserved). Regenerate first if you have new
+# audit findings:
+npm run data:import-flags
+npx wrangler d1 execute onlyphiles --remote \
+  --file=worker/migrations/002_seed_flag_reasons.sql
+```
+
+Each migration's header comments document the apply command and whether re-applying is safe.
+
 ## API
 
 ### Public endpoints
@@ -116,10 +136,12 @@ Require authentication via Cloudflare Access JWT, CF Access cookie, or `X-Admin-
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/api/admin/people` | Admin people list (same filtering as public) |
-| `GET` | `/api/admin/people/:id` | Admin person detail |
+| `GET` | `/api/admin/people` | Admin people list (public params plus `flaggedOnly=1`, `unreviewedOnly=1`, `hiddenOnly=1`) |
+| `GET` | `/api/admin/people/:id` | Admin person detail (includes `enabled`, `lastReviewedAt`, `flaggedReason`) |
 | `PATCH` | `/api/admin/people/:id` | Update person fields |
 | `PUT` | `/api/admin/people/:id/sources` | Replace sources array |
+
+`PATCH` accepts (snake_case or camelCase): `name`, `status`, `level`, `state`, `office`, `summary`, `crime_description`, `offense_year`, `conviction_year`, `event_date`, `still_in_office`, `enabled`, `last_reviewed_at`, `flagged_reason`. The server auto-stamps `last_reviewed_at` to the current UTC ISO time on every successful save **unless** the body explicitly provides one — pass `last_reviewed_at: null` to mark an entry unreviewed. The `enabled` and review fields are stripped from public `/api/people*` responses.
 
 ## Data Pipeline
 
@@ -159,6 +181,17 @@ Output files (not committed — live under `.omo/research/`):
 - `.omo/research/defamation-risk-flagged.md` — neutral-language smell-test report
 
 Data-quality regression tests live in `tests/data-quality.test.js`. Ratchet baselines are stored in `tests/data-quality.baselines.json` — counts can only shrink, never grow.
+
+### Admin review workflow
+
+The admin interface (`/admin.html`) supports a triage loop over the 990 entries flagged by the Phase 1 audit:
+
+- Filter bar: toggle "Flagged only" / "Unreviewed only" / "Hidden only" to narrow the list.
+- Edit panel shows `Last reviewed` + a "Mark unreviewed" button; "Hide from public" checkbox toggles `enabled=0`; "Flag reason" textarea captures admin notes (max 1000 chars).
+- Every successful save auto-stamps `last_reviewed_at` so the list naturally drains as entries are reviewed.
+- Soft-hide (`enabled=0`) removes the entry from `/api/people*`, `/api/stats`, and the public site, but keeps it in admin for un-hiding.
+
+To seed initial `flagged_reason` values from the audit findings, run `npm run data:import-flags` and apply the generated migration (`worker/migrations/002_seed_flag_reasons.sql`).
 
 ## Data Schema (people.json)
 
