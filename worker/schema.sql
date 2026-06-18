@@ -14,7 +14,10 @@ CREATE TABLE IF NOT EXISTS people (
   offense_year INTEGER,
   conviction_year INTEGER,
   event_date TEXT,
-  enabled INTEGER NOT NULL DEFAULT 1 -- 0 = hidden from public, 1 = visible
+  enabled INTEGER NOT NULL DEFAULT 1, -- 0 = hidden from public, 1 = visible
+  last_reviewed_at TEXT, -- ISO 8601 timestamp; NULL = never reviewed
+  flagged_reason TEXT,   -- free-text reason an admin flagged this entry; NULL = not flagged
+  last_reviewed_by TEXT  -- email from verified CF Access JWT; 'shared-secret' for X-Admin-Secret; NULL = unknown
 );
 
 CREATE TABLE IF NOT EXISTS crime_types (
@@ -41,3 +44,10 @@ CREATE INDEX IF NOT EXISTS idx_people_name ON people(name);
 CREATE INDEX IF NOT EXISTS idx_people_offense_year ON people(offense_year);
 CREATE INDEX IF NOT EXISTS idx_crime_types_covering ON crime_types(crime_type, person_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_sources_unique ON sources(person_id, url);
+
+-- Phase B review-workflow indexes (mirror of worker/migrations/001_add_review_fields.sql)
+CREATE INDEX IF NOT EXISTS idx_people_flagged
+  ON people(flagged_reason)
+  WHERE flagged_reason IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_people_last_reviewed ON people(last_reviewed_at);
+CREATE INDEX IF NOT EXISTS idx_people_last_reviewed_by ON people(last_reviewed_by);

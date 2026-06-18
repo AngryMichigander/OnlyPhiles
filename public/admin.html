@@ -45,6 +45,21 @@
     .save-status.ok { color: #42be65; }
     .save-status.err { color: var(--convicted); }
     .no-results { color: var(--text-dim); padding: 0.5rem 0; font-size: 0.9rem; }
+    .filter-bar { display: flex; gap: 1.25rem; flex-wrap: wrap; margin-bottom: 1rem; padding: 0.5rem 0.25rem; font-size: 0.85rem; color: var(--text-muted); }
+    .filter-bar label { display: inline-flex; align-items: center; gap: 0.35rem; cursor: pointer; user-select: none; }
+    .filter-bar input[type="checkbox"] { margin: 0; cursor: pointer; }
+    .results-list li .meta { display: inline-flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; justify-content: flex-end; }
+    .badge { display: inline-block; font-size: 0.7rem; line-height: 1; padding: 0.18rem 0.45rem; border-radius: 4px; color: #fff; letter-spacing: 0.02em; font-weight: 600; }
+    .badge-hidden { background: var(--convicted); }
+    .badge-flagged { background: #d97706; }
+    .badge-unreviewed { background: #6b7280; }
+    .last-reviewed-row { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; margin: -0.5rem 0 1.25rem; font-size: 0.85rem; color: var(--text-dim); }
+    .btn-secondary { padding: 0.35rem 0.75rem; background: var(--surface); border: 1px solid var(--border); border-radius: 5px; color: var(--text-muted); cursor: pointer; font-size: 0.78rem; }
+    .btn-secondary:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+    .btn-secondary:disabled { opacity: 0.4; cursor: default; }
+    .checkbox-row { margin-bottom: 1rem; }
+    .checkbox-row label { display: inline-flex; align-items: center; gap: 0.5rem; cursor: pointer; user-select: none; font-size: 0.9rem; color: var(--text); }
+    .checkbox-row input[type="checkbox"] { margin: 0; cursor: pointer; }
   </style>
 </head>
 <body>
@@ -64,6 +79,12 @@
   <main class="admin-wrap">
     <h1 style="margin-bottom:1.25rem;font-size:1.5rem;">Admin — Edit Entries</h1>
 
+    <div class="filter-bar">
+      <label><input type="checkbox" id="filter-flagged"> Flagged only</label>
+      <label><input type="checkbox" id="filter-unreviewed"> Unreviewed only</label>
+      <label><input type="checkbox" id="filter-hidden"> Hidden only</label>
+    </div>
+
     <div class="search-bar">
       <input type="text" id="admin-search" placeholder="Search by name…" autocomplete="off">
       <button id="admin-search-btn">Search</button>
@@ -80,6 +101,11 @@
     <div id="edit-panel-parking" style="display:none;">
     <section class="edit-panel" id="edit-panel">
       <h2 id="edit-title">Edit Entry</h2>
+
+      <div class="last-reviewed-row">
+        <span id="last-reviewed-display">Last reviewed: —</span>
+        <button class="btn-secondary" id="mark-unreviewed-btn" type="button">Mark unreviewed</button>
+      </div>
 
       <div class="field-row">
         <div class="field-group">
@@ -132,6 +158,18 @@
       <div class="field-group">
         <label>Summary</label>
         <textarea id="f-summary"></textarea>
+      </div>
+
+      <div class="checkbox-row">
+        <label>
+          <input type="checkbox" id="f-enabled">
+          Hide from public (sets enabled=0)
+        </label>
+      </div>
+
+      <div class="field-group">
+        <label>Flag reason (max 1000 chars)</label>
+        <textarea id="f-flagged-reason" maxlength="1000" rows="2"></textarea>
       </div>
 
       <div class="field-group">

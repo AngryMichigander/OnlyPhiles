@@ -156,6 +156,26 @@ describe("data quality invariants", () => {
     expect(duplicates, "Duplicate ids found").toHaveLength(0);
   });
 
+  it("review fields are DB-only — data/people.json does not contain enabled / lastReviewedAt / flaggedReason", () => {
+    const FORBIDDEN_KEYS = [
+      "enabled",
+      "lastReviewedAt",
+      "flaggedReason",
+      "last_reviewed_at",
+      "flagged_reason",
+    ];
+    const violations = [];
+    for (const p of PEOPLE) {
+      for (const key of FORBIDDEN_KEYS) {
+        if (p[key] !== undefined) violations.push(`${p.id}:${key}`);
+      }
+    }
+    expect(
+      violations,
+      `data/people.json must not include DB-only review/admin fields (they are silently dropped on seed). Found: ${violations.join(", ")}`,
+    ).toHaveLength(0);
+  });
+
   it("baselines file completeness — every ratchet key has a baseline entry", () => {
     const RATCHET_KEYS = ["unknownStates", "futureDates"];
     const baselines = getBaselines();

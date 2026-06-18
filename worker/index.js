@@ -3,6 +3,10 @@
  * Backed by D1 database.
  */
 
+import { verifyAccessJwt } from "./lib/jwt.js";
+
+let _heuristicAuthWarningLogged = false;
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -28,22 +32,46 @@ export default {
           return new Response(null, { status: 204, headers: adminCors });
         }
 
-        // Authenticate: require CF Access JWT, CF Access cookie, or env-configured secret.
-        // CF Access validates JWTs at the edge; the header/cookie are added post-validation.
-        // No hardcoded fallback — env.ADMIN_SECRET must be set via `wrangler secret put`.
         const jwt = request.headers.get("Cf-Access-Jwt-Assertion");
         const secret = request.headers.get("X-Admin-Secret");
         const cookie = request.headers.get("Cookie") || "";
         const cfCookieMatch = cookie.match(/CF_Authorization=([^\s;]+)/);
         const cfToken = cfCookieMatch ? cfCookieMatch[1] : null;
 
-        // Heuristic: valid JWTs Base64Url-encode to start with "ey".
-        // This is NOT cryptographic validation — CF Access validates the JWT at the edge.
-        const hasValidJwt = jwt && jwt.startsWith("ey");
-        const hasValidCookie = cfToken && cfToken.startsWith("ey");
-        const hasValidSecret = env.ADMIN_SECRET && secret === env.ADMIN_SECRET;
+        let actor = null;
+        let authed = false;
+        const tokenToVerify = jwt || cfToken;
+        const strictMode = !!(env.CF_ACCESS_TEAM_DOMAIN && env.CF_ACCESS_AUD);
 
-        if (!hasValidJwt && !hasValidCookie && !hasValidSecret) {
+        if (tokenToVerify) {
+          if (strictMode) {
+            try {
+              const claims = await verifyAccessJwt(tokenToVerify, {
+                teamDomain: env.CF_ACCESS_TEAM_DOMAIN,
+                audience: env.CF_ACCESS_AUD,
+              });
+              authed = true;
+              actor = claims.email || claims.sub || "verified-jwt";
+            } catch (err) {
+              console.warn(`CF Access JWT verification failed: ${err.message}`);
+            }
+          } else {
+            if (!_heuristicAuthWarningLogged) {
+              console.warn("CF_ACCESS_TEAM_DOMAIN / CF_ACCESS_AUD not set; JWT verification disabled (using 'starts with ey' heuristic). Set both to enable strict mode.");
+              _heuristicAuthWarningLogged = true;
+            }
+            if (tokenToVerify.startsWith("ey")) {
+              authed = true;
+            }
+          }
+        }
+
+        if (!authed && secret && env.ADMIN_SECRET && secret === env.ADMIN_SECRET) {
+          authed = true;
+          actor = "shared-secret";
+        }
+
+        if (!authed) {
           return json({ error: "Unauthorized" }, 401, adminCors);
         }
 
@@ -53,7 +81,7 @@ export default {
           return await handleAdminUpdateSources(adminSrcMatch[1], request, env.DB, adminCors);
         }
         if (adminIdMatch && request.method === "PATCH") {
-          return await handleAdminUpdatePerson(adminIdMatch[1], request, env.DB, adminCors);
+          return await handleAdminUpdatePerson(adminIdMatch[1], request, env.DB, adminCors, actor);
         }
         if (adminIdMatch && request.method === "GET") {
           return await handlePersonById(adminIdMatch[1], env.DB, adminCors);
@@ -176,6 +204,12 @@ async function handlePeopleList(url, db, cors, { publicOnly = false } = {}) {
     whereClauses.push("p.still_in_office = 0");
   }
 
+  if (!publicOnly) {
+    if (params.get("flaggedOnly") === "1") whereClauses.push("p.flagged_reason IS NOT NULL");
+    if (params.get("unreviewedOnly") === "1") whereClauses.push("p.last_reviewed_at IS NULL");
+    if (params.get("hiddenOnly") === "1") whereClauses.push("p.enabled = 0");
+  }
+
   const whereSQL = whereClauses.length ? "WHERE " + whereClauses.join(" AND ") : "";
 
   // Validate sort column
@@ -185,13 +219,16 @@ async function handlePeopleList(url, db, cors, { publicOnly = false } = {}) {
     state: "p.state",
     offense_year: "p.offense_year",
     conviction_year: "p.conviction_year",
+    last_reviewed_at: "p.last_reviewed_at",
+    flagged_reason: "p.flagged_reason",
+    last_reviewed_by: "p.last_reviewed_by",
   };
   const sortCol = sortColumns[sort] || "p.name";
 
   // Batch count + data queries in a single D1 round-trip
   const offset = (page - 1) * limit;
   const countSQL = `SELECT COUNT(*) as total FROM people p ${whereSQL}`;
-  const listCols = "p.id, p.name, p.status, p.level, p.state, p.office, p.summary, p.still_in_office, p.offense_year, p.conviction_year, p.event_date, p.enabled";
+  const listCols = "p.id, p.name, p.status, p.level, p.state, p.office, p.summary, p.still_in_office, p.offense_year, p.conviction_year, p.event_date, p.enabled, p.last_reviewed_at, p.flagged_reason, p.last_reviewed_by";
   const dataSQL = `SELECT ${listCols} FROM people p ${whereSQL} ORDER BY ${sortCol} ${order} LIMIT ? OFFSET ?`;
 
   const [countResult, dataResult] = await db.batch([
@@ -223,7 +260,7 @@ async function handlePeopleList(url, db, cors, { publicOnly = false } = {}) {
     }
   }
 
-  const results = rows.map((r) => formatPerson(r, crimeTypesMap, sourcesMap));
+  const results = rows.map((r) => formatPerson(r, crimeTypesMap, sourcesMap, { includeReviewFields: !publicOnly }));
 
   return json(
     {
@@ -256,7 +293,7 @@ async function handlePersonById(id, db, cors, { publicOnly = false } = {}) {
   const crimeTypesMap = { [id]: ctResult.results.map((r) => r.crime_type) };
   const sourcesMap = { [id]: srcResult.results.map((r) => r.url) };
 
-  return json(formatPerson(person, crimeTypesMap, sourcesMap), 200, cors, { "Cache-Control": "public, max-age=3600, s-maxage=86400, stale-while-revalidate=3600" });
+  return json(formatPerson(person, crimeTypesMap, sourcesMap, { includeReviewFields: !publicOnly }), 200, cors, { "Cache-Control": "public, max-age=3600, s-maxage=86400, stale-while-revalidate=3600" });
 }
 
 // ---------------------------------------------------------------------------
@@ -308,7 +345,7 @@ async function handleHealth(db, cors) {
 // ---------------------------------------------------------------------------
 // PATCH /api/admin/people/:id
 // ---------------------------------------------------------------------------
-async function handleAdminUpdatePerson(id, request, db, cors) {
+async function handleAdminUpdatePerson(id, request, db, cors, actor) {
   const person = await db.prepare("SELECT id FROM people WHERE id = ?").bind(id).first();
   if (!person) return json({ error: "Not found" }, 404, cors);
 
@@ -334,7 +371,21 @@ async function handleAdminUpdatePerson(id, request, db, cors) {
   if (body.enabled !== undefined && ![0, 1, true, false].includes(body.enabled))
     return json({ error: "Invalid enabled value" }, 400, cors);
 
-  const allowed = ["name", "status", "level", "state", "office", "summary", "crime_description", "offense_year", "conviction_year", "event_date", "still_in_office", "enabled"];
+  const lra = body.last_reviewed_at !== undefined ? body.last_reviewed_at : body.lastReviewedAt;
+  if (lra !== undefined && lra !== null && lra !== "" &&
+      !(typeof lra === "string" && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(lra))) {
+    return json({ error: "Invalid last_reviewed_at format (ISO 8601 expected, or null/empty to clear)" }, 400, cors);
+  }
+
+  const fr = body.flagged_reason !== undefined ? body.flagged_reason : body.flaggedReason;
+  if (fr !== undefined && fr !== null && typeof fr !== "string") {
+    return json({ error: "flagged_reason must be a string or null" }, 400, cors);
+  }
+  if (typeof fr === "string" && fr.length > 1000) {
+    return json({ error: "flagged_reason too long (max 1000 chars)" }, 400, cors);
+  }
+
+  const allowed = ["name", "status", "level", "state", "office", "summary", "crime_description", "offense_year", "conviction_year", "event_date", "still_in_office", "enabled", "last_reviewed_at", "flagged_reason"];
   const sets = [];
   const vals = [];
 
@@ -352,6 +403,19 @@ async function handleAdminUpdatePerson(id, request, db, cors) {
     }
   }
 
+  const lraInBody = body.last_reviewed_at !== undefined ? body.last_reviewed_at : body.lastReviewedAt;
+  const lastReviewedExplicit = lraInBody !== undefined;
+  if (!lastReviewedExplicit) {
+    sets.push("last_reviewed_at = ?");
+    vals.push(new Date().toISOString());
+    sets.push("last_reviewed_by = ?");
+    vals.push(actor ?? null);
+  } else {
+    const isClearing = lraInBody === null || lraInBody === "";
+    sets.push("last_reviewed_by = ?");
+    vals.push(isClearing ? null : (actor ?? null));
+  }
+
   if (!sets.length) return json({ error: "No valid fields to update" }, 400, cors);
 
   vals.push(id);
@@ -363,7 +427,7 @@ async function handleAdminUpdatePerson(id, request, db, cors) {
     db.prepare("SELECT url FROM sources WHERE person_id = ?").bind(id),
   ]);
   const updated = updResult.results[0];
-  return json(formatPerson(updated, { [id]: ctRows.results.map(r => r.crime_type) }, { [id]: srcRows.results.map(r => r.url) }), 200, cors, { "Cache-Control": "no-store" });
+  return json(formatPerson(updated, { [id]: ctRows.results.map(r => r.crime_type) }, { [id]: srcRows.results.map(r => r.url) }, { includeReviewFields: true }), 200, cors, { "Cache-Control": "no-store" });
 }
 
 // ---------------------------------------------------------------------------
@@ -405,7 +469,7 @@ async function handleAdminUpdateSources(id, request, db, cors) {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-function formatPerson(row, crimeTypesMap, sourcesMap) {
+function formatPerson(row, crimeTypesMap, sourcesMap, { includeReviewFields = false } = {}) {
   const person = {
     id: row.id,
     name: row.name,
@@ -422,7 +486,11 @@ function formatPerson(row, crimeTypesMap, sourcesMap) {
     crimeTypes: crimeTypesMap[row.id] || [],
     sources: sourcesMap[row.id] || [],
   };
-  // Only include crimeDescription when available (single-person endpoint)
+  if (includeReviewFields) {
+    person.lastReviewedAt = row.last_reviewed_at || null;
+    person.flaggedReason = row.flagged_reason || null;
+    person.lastReviewedBy = row.last_reviewed_by || null;
+  }
   if (row.crime_description !== undefined) {
     person.crimeDescription = row.crime_description;
   }
