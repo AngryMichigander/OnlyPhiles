@@ -104,7 +104,9 @@ npx wrangler d1 execute onlyphiles --remote --file=worker/seed.sql    # Apply se
 Migrations under `worker/migrations/` are additive changes to existing D1 databases — they are NOT applied automatically by the deploy pipeline. Apply each once, in order, after a PR introducing it has merged:
 
 ```bash
-# Phase B: add review-tracking columns + indexes
+# Phase B: add review-tracking columns + indexes (staging first, then prod)
+npx wrangler d1 execute onlyphiles-staging --remote \
+  --file=worker/migrations/001_add_review_fields.sql
 npx wrangler d1 execute onlyphiles --remote \
   --file=worker/migrations/001_add_review_fields.sql
 
@@ -113,8 +115,17 @@ npx wrangler d1 execute onlyphiles --remote \
 # admin-authored reasons are preserved). Regenerate first if you have new
 # audit findings:
 npm run data:import-flags
+npx wrangler d1 execute onlyphiles-staging --remote \
+  --file=worker/migrations/002_seed_flag_reasons.sql
 npx wrangler d1 execute onlyphiles --remote \
   --file=worker/migrations/002_seed_flag_reasons.sql
+
+# Phase B (auth): add actor column for audit trail. Required for the
+# strict-mode auth flow to record the reviewer's email in last_reviewed_by.
+npx wrangler d1 execute onlyphiles-staging --remote \
+  --file=worker/migrations/003_add_last_reviewed_by.sql
+npx wrangler d1 execute onlyphiles --remote \
+  --file=worker/migrations/003_add_last_reviewed_by.sql
 ```
 
 Each migration's header comments document the apply command and whether re-applying is safe.
@@ -132,16 +143,40 @@ Each migration's header comments document the apply command and whether re-apply
 
 ### Admin endpoints
 
-Require authentication via Cloudflare Access JWT, CF Access cookie, or `X-Admin-Secret` header.
+Require authentication — see [Admin authentication](#admin-authentication) below.
 
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/api/admin/people` | Admin people list (public params plus `flaggedOnly=1`, `unreviewedOnly=1`, `hiddenOnly=1`) |
-| `GET` | `/api/admin/people/:id` | Admin person detail (includes `enabled`, `lastReviewedAt`, `flaggedReason`) |
+| `GET` | `/api/admin/people/:id` | Admin person detail (includes `enabled`, `lastReviewedAt`, `flaggedReason`, `lastReviewedBy`) |
 | `PATCH` | `/api/admin/people/:id` | Update person fields |
 | `PUT` | `/api/admin/people/:id/sources` | Replace sources array |
 
-`PATCH` accepts (snake_case or camelCase): `name`, `status`, `level`, `state`, `office`, `summary`, `crime_description`, `offense_year`, `conviction_year`, `event_date`, `still_in_office`, `enabled`, `last_reviewed_at`, `flagged_reason`. The server auto-stamps `last_reviewed_at` to the current UTC ISO time on every successful save **unless** the body explicitly provides one — pass `last_reviewed_at: null` to mark an entry unreviewed. The `enabled` and review fields are stripped from public `/api/people*` responses.
+`PATCH` accepts (snake_case or camelCase): `name`, `status`, `level`, `state`, `office`, `summary`, `crime_description`, `offense_year`, `conviction_year`, `event_date`, `still_in_office`, `enabled`, `last_reviewed_at`, `flagged_reason`. The server auto-stamps both `last_reviewed_at` (current UTC ISO) and `last_reviewed_by` (the verified JWT's `email` claim, or `'shared-secret'` for X-Admin-Secret auth) on every successful save **unless** the body explicitly provides `last_reviewed_at` — pass `last_reviewed_at: null` to mark an entry unreviewed (also clears `last_reviewed_by`). The `enabled`, `lastReviewedAt`, `flaggedReason`, and `lastReviewedBy` fields are stripped from public `/api/people*` responses.
+
+### Admin authentication
+
+The worker has two auth modes, controlled by env vars in [`wrangler.toml`](wrangler.toml) or via `wrangler secret put`.
+
+**Strict mode (recommended for production)** — When both `CF_ACCESS_TEAM_DOMAIN` and `CF_ACCESS_AUD` are set, the worker fetches JWKS from `https://<team>.cloudflareaccess.com/cdn-cgi/access/certs` (cached for 1h), cryptographically verifies the RS256 signature on every JWT (header or `CF_Authorization` cookie), and validates `iss` / `aud` / `exp` / `iat` / `nbf`. The verified `email` claim (falling back to `sub`, then the literal `"verified-jwt"`) is written to `last_reviewed_by` on every PATCH so the audit trail records *who* reviewed *when*.
+
+**Heuristic mode (default until you set `CF_ACCESS_AUD`)** — When either env var is unset, the worker accepts any JWT/cookie whose value starts with `ey` and skips signature validation. This is the legacy path and assumes Cloudflare Access at the edge is doing the real verification. A warning is logged once per isolate. Actor is recorded as `null` (no trustworthy email).
+
+**X-Admin-Secret fallback** — kept in both modes for emergency / break-glass access. Set via `wrangler secret put ADMIN_SECRET`. Requests using this path record `last_reviewed_by = 'shared-secret'` so SSO-authored writes are distinguishable in audit queries.
+
+To activate strict mode:
+
+1. In the Cloudflare Zero Trust dashboard, create an Access Application that protects `https://onlyphiles.com/api/admin/*` (and ideally `https://onlyphiles.com/admin*` for the static page itself). Add a policy (e.g. emails matching `@slenk.dev`).
+2. Copy the **Application Audience (AUD) Tag** from the application overview.
+3. Set it as a wrangler secret on both environments:
+   ```bash
+   wrangler secret put CF_ACCESS_AUD
+   wrangler secret put CF_ACCESS_AUD --env preview
+   ```
+4. `CF_ACCESS_TEAM_DOMAIN` is already set to `slenk.cloudflareaccess.com` in [`wrangler.toml`](wrangler.toml) for both envs.
+5. Redeploy. Strict mode activates automatically when both env vars are populated; the heuristic-mode warning stops appearing.
+
+**Page-level gate (optional, hardening)** — for full defense in depth, add a CF Access policy on the `/admin*` Pages route in the Zero Trust dashboard so the static admin page itself requires SSO before loading. The `/api/admin/*` worker auth is independent and unaffected.
 
 ## Data Pipeline
 
@@ -187,8 +222,8 @@ Data-quality regression tests live in `tests/data-quality.test.js`. Ratchet base
 The admin interface (`/admin.html`) supports a triage loop over the 990 entries flagged by the Phase 1 audit:
 
 - Filter bar: toggle "Flagged only" / "Unreviewed only" / "Hidden only" to narrow the list.
-- Edit panel shows `Last reviewed` + a "Mark unreviewed" button; "Hide from public" checkbox toggles `enabled=0`; "Flag reason" textarea captures admin notes (max 1000 chars).
-- Every successful save auto-stamps `last_reviewed_at` so the list naturally drains as entries are reviewed.
+- Edit panel shows `Last reviewed by <email> on <ts>` (or "Never reviewed") + a "Mark unreviewed" button; "Hide from public" checkbox toggles `enabled=0`; "Flag reason" textarea captures admin notes (max 1000 chars).
+- Every successful save auto-stamps both `last_reviewed_at` and `last_reviewed_by` (from the verified JWT email — see [Admin authentication](#admin-authentication)) so the list naturally drains as entries are reviewed and the audit trail records actor identity.
 - Soft-hide (`enabled=0`) removes the entry from `/api/people*`, `/api/stats`, and the public site, but keeps it in admin for un-hiding.
 
 To seed initial `flagged_reason` values from the audit findings, run `npm run data:import-flags` and apply the generated migration (`worker/migrations/002_seed_flag_reasons.sql`).
