@@ -92,7 +92,7 @@ async function loadPerson(id, li) {
   try {
     const p = await apiGet(`/api/admin/people/${id}`);
     $('edit-title').textContent = p.name;
-    updateLastReviewedDisplay(p.lastReviewedAt);
+    updateLastReviewedDisplay(p.lastReviewedAt, p.lastReviewedBy);
     $('f-name').value = p.name || '';
     $('f-state').value = p.state || '';
     $('f-status').value = p.status || 'alleged';
@@ -137,13 +137,14 @@ function escHtml(s) {
   return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
 
-function updateLastReviewedDisplay(iso) {
+function updateLastReviewedDisplay(iso, by) {
   const el = $('last-reviewed-display');
   if (!iso) {
     el.textContent = 'Never reviewed';
-  } else {
-    el.textContent = `Last reviewed: ${iso.slice(0, 16).replace('T', ' ')} UTC`;
+    return;
   }
+  const ts = `${iso.slice(0, 16).replace('T', ' ')} UTC`;
+  el.textContent = by ? `Last reviewed by ${by} on ${ts}` : `Last reviewed: ${ts}`;
 }
 
 function rowBadges(p) {
@@ -217,7 +218,7 @@ $('save-btn').addEventListener('click', async () => {
     }
   }
   $('edit-title').textContent = newName;
-  updateLastReviewedDisplay(updatedPerson.lastReviewedAt);
+  updateLastReviewedDisplay(updatedPerson.lastReviewedAt, updatedPerson.lastReviewedBy);
 
   try {
     // Save sources
@@ -250,7 +251,7 @@ $('mark-unreviewed-btn').addEventListener('click', async () => {
   status.textContent = '';
   try {
     await apiPatch(`/api/admin/people/${currentId}`, { last_reviewed_at: null });
-    updateLastReviewedDisplay(null);
+    updateLastReviewedDisplay(null, null);
     const activeLi = document.querySelector(`#admin-results li[data-id="${CSS.escape(currentId)}"]`);
     const metaSpan = activeLi?.querySelector('.meta');
     if (metaSpan) {
