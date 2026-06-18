@@ -137,6 +137,50 @@ describe("formatPerson", () => {
     );
     expect(result.eventDate).toBeNull();
   });
+
+  it("includes lastReviewedAt and flaggedReason when includeReviewFields=true", () => {
+    const result = formatPerson(
+      {
+        id: "a",
+        name: "A",
+        status: "alleged",
+        last_reviewed_at: "2026-06-18T12:34:56Z",
+        flagged_reason: "[P0] convicted-no-conviction-year",
+      },
+      {},
+      {},
+      { includeReviewFields: true },
+    );
+    expect(result.lastReviewedAt).toBe("2026-06-18T12:34:56Z");
+    expect(result.flaggedReason).toBe("[P0] convicted-no-conviction-year");
+  });
+
+  it("omits lastReviewedAt and flaggedReason by default", () => {
+    const result = formatPerson(
+      {
+        id: "a",
+        name: "A",
+        status: "alleged",
+        last_reviewed_at: "2026-06-18T12:34:56Z",
+        flagged_reason: "[P0] flag",
+      },
+      {},
+      {},
+    );
+    expect(result).not.toHaveProperty("lastReviewedAt");
+    expect(result).not.toHaveProperty("flaggedReason");
+  });
+
+  it("normalizes null/empty review fields to null when includeReviewFields=true", () => {
+    const result = formatPerson(
+      { id: "a", name: "A", status: "alleged", last_reviewed_at: null, flagged_reason: "" },
+      {},
+      {},
+      { includeReviewFields: true },
+    );
+    expect(result.lastReviewedAt).toBeNull();
+    expect(result.flaggedReason).toBeNull();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -536,6 +580,76 @@ describe("Admin input validation", () => {
     expect(res.status).toBe(400);
     expect(body.error).toContain("Invalid enabled");
   });
+
+  it("rejects invalid last_reviewed_at format", async () => {
+    const res = await worker.fetch(
+      patchReq({ last_reviewed_at: "yesterday" }),
+      mockEnv({ DB: personDB }),
+    );
+    const body = await res.json();
+    expect(res.status).toBe(400);
+    expect(body.error).toContain("last_reviewed_at");
+  });
+
+  it("rejects non-string flagged_reason", async () => {
+    const res = await worker.fetch(
+      patchReq({ flagged_reason: 12345 }),
+      mockEnv({ DB: personDB }),
+    );
+    const body = await res.json();
+    expect(res.status).toBe(400);
+    expect(body.error).toContain("flagged_reason");
+  });
+
+  it("rejects flagged_reason over 1000 chars", async () => {
+    const res = await worker.fetch(
+      patchReq({ flagged_reason: "x".repeat(1001) }),
+      mockEnv({ DB: personDB }),
+    );
+    const body = await res.json();
+    expect(res.status).toBe(400);
+    expect(body.error).toContain("flagged_reason");
+  });
+
+  it("accepts valid ISO 8601 last_reviewed_at and string flagged_reason", async () => {
+    const db = {
+      prepare: () => ({
+        bind: () => ({
+          first: async () => ({ id: "test-person", name: "Test", status: "alleged", still_in_office: null, enabled: 1 }),
+          all: async () => ({ results: [] }),
+          run: async () => ({ success: true }),
+        }),
+      }),
+      batch: async (stmts) => stmts.map(() => ({
+        results: [{ id: "test-person", name: "Test", status: "alleged", still_in_office: null, enabled: 1 }],
+      })),
+    };
+    const res = await worker.fetch(
+      patchReq({ last_reviewed_at: "2026-06-18T12:34:56.789Z", flagged_reason: "[P0] needs verification" }),
+      mockEnv({ DB: db }),
+    );
+    expect(res.status).toBe(200);
+  });
+
+  it("accepts null flagged_reason (clears the flag)", async () => {
+    const db = {
+      prepare: () => ({
+        bind: () => ({
+          first: async () => ({ id: "test-person", name: "Test", status: "alleged", still_in_office: null, enabled: 1 }),
+          all: async () => ({ results: [] }),
+          run: async () => ({ success: true }),
+        }),
+      }),
+      batch: async (stmts) => stmts.map(() => ({
+        results: [{ id: "test-person", name: "Test", status: "alleged", still_in_office: null, enabled: 1 }],
+      })),
+    };
+    const res = await worker.fetch(
+      patchReq({ flagged_reason: null }),
+      mockEnv({ DB: db }),
+    );
+    expect(res.status).toBe(200);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -601,7 +715,236 @@ describe("Enabled column filtering", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
+// Review fields auto-stamp behavior
+describe("Review fields auto-stamp", () => {
+  function spyDB(initialPerson) {
+    const captured = { sqls: [], binds: [] };
+    const stmtMethods = {
+      first: async () => initialPerson,
+      all: async () => ({ results: [] }),
+      run: async () => ({ success: true }),
+    };
+    return {
+      _captured: captured,
+      prepare: (sql) => {
+        captured.sqls.push(sql);
+        return {
+          ...stmtMethods,
+          bind: (...args) => {
+            captured.binds.push({ sql, args });
+            return stmtMethods;
+          },
+        };
+      },
+      batch: async (stmts) => stmts.map(() => ({
+        results: [{ id: "test-person", name: "Test", status: "alleged", still_in_office: null, enabled: 1 }],
+      })),
+    };
+  }
+
+  function patchReq(body) {
+    return req("/api/admin/people/test-person", {
+      method: "PATCH",
+      headers: adminHeaders,
+      body: JSON.stringify(body),
+    });
+  }
+
+  it("auto-stamps last_reviewed_at when body does not include it", async () => {
+    const db = spyDB({ id: "test-person" });
+    const res = await worker.fetch(patchReq({ name: "Updated" }), mockEnv({ DB: db }));
+    expect(res.status).toBe(200);
+    const updateBind = db._captured.binds.find(b => b.sql.startsWith("UPDATE people"));
+    expect(updateBind.sql).toContain("last_reviewed_at = ?");
+    const hasIso = updateBind.args.some(
+      a => typeof a === "string" && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(a),
+    );
+    expect(hasIso).toBe(true);
+  });
+
+  it("respects explicit last_reviewed_at when provided in body", async () => {
+    const db = spyDB({ id: "test-person" });
+    const explicitTs = "2025-01-15T00:00:00.000Z";
+    const res = await worker.fetch(
+      patchReq({ last_reviewed_at: explicitTs }),
+      mockEnv({ DB: db }),
+    );
+    expect(res.status).toBe(200);
+    const updateBind = db._captured.binds.find(b => b.sql.startsWith("UPDATE people"));
+    expect(updateBind.args).toContain(explicitTs);
+    const lraCount = (updateBind.sql.match(/last_reviewed_at = \?/g) || []).length;
+    expect(lraCount).toBe(1);
+  });
+
+  it("respects explicit null last_reviewed_at (mark unreviewed)", async () => {
+    const db = spyDB({ id: "test-person" });
+    const res = await worker.fetch(
+      patchReq({ last_reviewed_at: null }),
+      mockEnv({ DB: db }),
+    );
+    expect(res.status).toBe(200);
+    const updateBind = db._captured.binds.find(b => b.sql.startsWith("UPDATE people"));
+    expect(updateBind.sql).toContain("last_reviewed_at = ?");
+    expect(updateBind.args).toContain(null);
+    const lraCount = (updateBind.sql.match(/last_reviewed_at = \?/g) || []).length;
+    expect(lraCount).toBe(1);
+  });
+
+  it("auto-stamps even on empty PATCH body (mark-as-reviewed shortcut)", async () => {
+    const db = spyDB({ id: "test-person" });
+    const res = await worker.fetch(patchReq({}), mockEnv({ DB: db }));
+    expect(res.status).toBe(200);
+    const updateBind = db._captured.binds.find(b => b.sql.startsWith("UPDATE people"));
+    expect(updateBind.sql).toBe("UPDATE people SET last_reviewed_at = ? WHERE id = ?");
+  });
+
+  it("accepts camelCase lastReviewedAt key (matches existing snake/camel handling)", async () => {
+    const db = spyDB({ id: "test-person" });
+    const explicitTs = "2025-03-01T00:00:00.000Z";
+    const res = await worker.fetch(
+      patchReq({ lastReviewedAt: explicitTs }),
+      mockEnv({ DB: db }),
+    );
+    expect(res.status).toBe(200);
+    const updateBind = db._captured.binds.find(b => b.sql.startsWith("UPDATE people"));
+    expect(updateBind.args).toContain(explicitTs);
+  });
+});
+
+// Admin list filters
+describe("Admin list filters", () => {
+  function spyListDB(opts = {}) {
+    const captured = { sqls: [], binds: [] };
+    const stmtMethods = {
+      first: async () => null,
+      all: async () => ({ results: [] }),
+      run: async () => ({ success: true }),
+    };
+    return {
+      _captured: captured,
+      prepare: (sql) => ({
+        ...stmtMethods,
+        bind: (...args) => {
+          captured.binds.push({ sql, args });
+          return stmtMethods;
+        },
+      }),
+      batch: async (stmts) => stmts.map((_, i) =>
+        opts.batchResults?.[i] ?? (i === 0 ? { results: [{ total: 0 }] } : { results: [] })
+      ),
+    };
+  }
+
+  it("flaggedOnly=1 adds flagged_reason IS NOT NULL clause", async () => {
+    const db = spyListDB();
+    const res = await worker.fetch(
+      req("/api/admin/people?flaggedOnly=1", {
+        method: "GET",
+        headers: { "X-Admin-Secret": "test-secret-xyz" },
+      }),
+      mockEnv({ DB: db }),
+    );
+    expect(res.status).toBe(200);
+    const selectBind = db._captured.binds.find(b => b.sql.startsWith("SELECT"));
+    expect(selectBind.sql).toContain("flagged_reason IS NOT NULL");
+  });
+
+  it("unreviewedOnly=1 adds last_reviewed_at IS NULL clause", async () => {
+    const db = spyListDB();
+    const res = await worker.fetch(
+      req("/api/admin/people?unreviewedOnly=1", {
+        method: "GET",
+        headers: { "X-Admin-Secret": "test-secret-xyz" },
+      }),
+      mockEnv({ DB: db }),
+    );
+    expect(res.status).toBe(200);
+    const selectBind = db._captured.binds.find(b => b.sql.startsWith("SELECT"));
+    expect(selectBind.sql).toContain("last_reviewed_at IS NULL");
+  });
+
+  it("hiddenOnly=1 adds enabled = 0 clause", async () => {
+    const db = spyListDB();
+    const res = await worker.fetch(
+      req("/api/admin/people?hiddenOnly=1", {
+        method: "GET",
+        headers: { "X-Admin-Secret": "test-secret-xyz" },
+      }),
+      mockEnv({ DB: db }),
+    );
+    expect(res.status).toBe(200);
+    const selectBind = db._captured.binds.find(b => b.sql.startsWith("SELECT"));
+    expect(selectBind.sql).toContain("p.enabled = 0");
+  });
+
+  it("public /api/people ignores admin filter params (security)", async () => {
+    const db = spyListDB();
+    const res = await worker.fetch(
+      req("/api/people?flaggedOnly=1&unreviewedOnly=1&hiddenOnly=1"),
+      mockEnv({ DB: db }),
+    );
+    expect(res.status).toBe(200);
+    const selectBind = db._captured.binds.find(b => b.sql.startsWith("SELECT"));
+    expect(selectBind.sql).toContain("p.enabled = 1");
+    expect(selectBind.sql).not.toContain("flagged_reason IS NOT NULL");
+    expect(selectBind.sql).not.toContain("last_reviewed_at IS NULL");
+    expect(selectBind.sql).not.toContain("p.enabled = 0");
+  });
+
+  it("admin list SELECT includes last_reviewed_at and flagged_reason columns", async () => {
+    const db = spyListDB();
+    const res = await worker.fetch(
+      req("/api/admin/people", {
+        method: "GET",
+        headers: { "X-Admin-Secret": "test-secret-xyz" },
+      }),
+      mockEnv({ DB: db }),
+    );
+    expect(res.status).toBe(200);
+    const dataSelectBind = db._captured.binds.find(b => /^SELECT p\.id/.test(b.sql));
+    expect(dataSelectBind.sql).toContain("p.last_reviewed_at");
+    expect(dataSelectBind.sql).toContain("p.flagged_reason");
+  });
+
+  it("admin list response includes lastReviewedAt and flaggedReason fields", async () => {
+    const db = spyListDB({
+      batchResults: [
+        { results: [{ total: 1 }] },
+        { results: [{ id: "a", name: "A", status: "alleged", enabled: 1, still_in_office: null, last_reviewed_at: "2026-06-18T00:00:00Z", flagged_reason: "[P0] test" }] },
+        { results: [] },
+        { results: [] },
+      ],
+    });
+    const res = await worker.fetch(
+      req("/api/admin/people", {
+        method: "GET",
+        headers: { "X-Admin-Secret": "test-secret-xyz" },
+      }),
+      mockEnv({ DB: db }),
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.results[0].lastReviewedAt).toBe("2026-06-18T00:00:00Z");
+    expect(body.results[0].flaggedReason).toBe("[P0] test");
+  });
+
+  it("public list response strips lastReviewedAt and flaggedReason fields", async () => {
+    const db = spyListDB({
+      batchResults: [
+        { results: [{ total: 1 }] },
+        { results: [{ id: "a", name: "A", status: "alleged", enabled: 1, still_in_office: null, last_reviewed_at: "2026-06-18T00:00:00Z", flagged_reason: "[P0] test" }] },
+        { results: [] },
+        { results: [] },
+      ],
+    });
+    const res = await worker.fetch(req("/api/people"), mockEnv({ DB: db }));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.results[0]).not.toHaveProperty("lastReviewedAt");
+    expect(body.results[0]).not.toHaveProperty("flaggedReason");
+  });
+});
+
 // seed-d1.js
 // ---------------------------------------------------------------------------
 describe("seed-d1.js", () => {
@@ -619,6 +962,13 @@ describe("seed-d1.js", () => {
     const fs = require("fs");
     const sql = fs.readFileSync("worker/seed.sql", "utf-8");
     expect(sql).not.toContain("enabled = excluded.enabled");
+  });
+
+  it("does not include last_reviewed_at or flagged_reason in the upsert SET clause", () => {
+    const fs = require("fs");
+    const sql = fs.readFileSync("worker/seed.sql", "utf-8");
+    expect(sql).not.toContain("last_reviewed_at = excluded.last_reviewed_at");
+    expect(sql).not.toContain("flagged_reason = excluded.flagged_reason");
   });
 
   it("includes orphan cleanup at end", () => {

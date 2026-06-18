@@ -176,6 +176,12 @@ async function handlePeopleList(url, db, cors, { publicOnly = false } = {}) {
     whereClauses.push("p.still_in_office = 0");
   }
 
+  if (!publicOnly) {
+    if (params.get("flaggedOnly") === "1") whereClauses.push("p.flagged_reason IS NOT NULL");
+    if (params.get("unreviewedOnly") === "1") whereClauses.push("p.last_reviewed_at IS NULL");
+    if (params.get("hiddenOnly") === "1") whereClauses.push("p.enabled = 0");
+  }
+
   const whereSQL = whereClauses.length ? "WHERE " + whereClauses.join(" AND ") : "";
 
   // Validate sort column
@@ -185,13 +191,15 @@ async function handlePeopleList(url, db, cors, { publicOnly = false } = {}) {
     state: "p.state",
     offense_year: "p.offense_year",
     conviction_year: "p.conviction_year",
+    last_reviewed_at: "p.last_reviewed_at",
+    flagged_reason: "p.flagged_reason",
   };
   const sortCol = sortColumns[sort] || "p.name";
 
   // Batch count + data queries in a single D1 round-trip
   const offset = (page - 1) * limit;
   const countSQL = `SELECT COUNT(*) as total FROM people p ${whereSQL}`;
-  const listCols = "p.id, p.name, p.status, p.level, p.state, p.office, p.summary, p.still_in_office, p.offense_year, p.conviction_year, p.event_date, p.enabled";
+  const listCols = "p.id, p.name, p.status, p.level, p.state, p.office, p.summary, p.still_in_office, p.offense_year, p.conviction_year, p.event_date, p.enabled, p.last_reviewed_at, p.flagged_reason";
   const dataSQL = `SELECT ${listCols} FROM people p ${whereSQL} ORDER BY ${sortCol} ${order} LIMIT ? OFFSET ?`;
 
   const [countResult, dataResult] = await db.batch([
@@ -223,7 +231,7 @@ async function handlePeopleList(url, db, cors, { publicOnly = false } = {}) {
     }
   }
 
-  const results = rows.map((r) => formatPerson(r, crimeTypesMap, sourcesMap));
+  const results = rows.map((r) => formatPerson(r, crimeTypesMap, sourcesMap, { includeReviewFields: !publicOnly }));
 
   return json(
     {
@@ -256,7 +264,7 @@ async function handlePersonById(id, db, cors, { publicOnly = false } = {}) {
   const crimeTypesMap = { [id]: ctResult.results.map((r) => r.crime_type) };
   const sourcesMap = { [id]: srcResult.results.map((r) => r.url) };
 
-  return json(formatPerson(person, crimeTypesMap, sourcesMap), 200, cors, { "Cache-Control": "public, max-age=3600, s-maxage=86400, stale-while-revalidate=3600" });
+  return json(formatPerson(person, crimeTypesMap, sourcesMap, { includeReviewFields: !publicOnly }), 200, cors, { "Cache-Control": "public, max-age=3600, s-maxage=86400, stale-while-revalidate=3600" });
 }
 
 // ---------------------------------------------------------------------------
@@ -334,7 +342,21 @@ async function handleAdminUpdatePerson(id, request, db, cors) {
   if (body.enabled !== undefined && ![0, 1, true, false].includes(body.enabled))
     return json({ error: "Invalid enabled value" }, 400, cors);
 
-  const allowed = ["name", "status", "level", "state", "office", "summary", "crime_description", "offense_year", "conviction_year", "event_date", "still_in_office", "enabled"];
+  const lra = body.last_reviewed_at !== undefined ? body.last_reviewed_at : body.lastReviewedAt;
+  if (lra !== undefined && lra !== null && lra !== "" &&
+      !(typeof lra === "string" && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(lra))) {
+    return json({ error: "Invalid last_reviewed_at format (ISO 8601 expected, or null/empty to clear)" }, 400, cors);
+  }
+
+  const fr = body.flagged_reason !== undefined ? body.flagged_reason : body.flaggedReason;
+  if (fr !== undefined && fr !== null && typeof fr !== "string") {
+    return json({ error: "flagged_reason must be a string or null" }, 400, cors);
+  }
+  if (typeof fr === "string" && fr.length > 1000) {
+    return json({ error: "flagged_reason too long (max 1000 chars)" }, 400, cors);
+  }
+
+  const allowed = ["name", "status", "level", "state", "office", "summary", "crime_description", "offense_year", "conviction_year", "event_date", "still_in_office", "enabled", "last_reviewed_at", "flagged_reason"];
   const sets = [];
   const vals = [];
 
@@ -352,6 +374,12 @@ async function handleAdminUpdatePerson(id, request, db, cors) {
     }
   }
 
+  const lastReviewedExplicit = body.last_reviewed_at !== undefined || body.lastReviewedAt !== undefined;
+  if (!lastReviewedExplicit) {
+    sets.push("last_reviewed_at = ?");
+    vals.push(new Date().toISOString());
+  }
+
   if (!sets.length) return json({ error: "No valid fields to update" }, 400, cors);
 
   vals.push(id);
@@ -363,7 +391,7 @@ async function handleAdminUpdatePerson(id, request, db, cors) {
     db.prepare("SELECT url FROM sources WHERE person_id = ?").bind(id),
   ]);
   const updated = updResult.results[0];
-  return json(formatPerson(updated, { [id]: ctRows.results.map(r => r.crime_type) }, { [id]: srcRows.results.map(r => r.url) }), 200, cors, { "Cache-Control": "no-store" });
+  return json(formatPerson(updated, { [id]: ctRows.results.map(r => r.crime_type) }, { [id]: srcRows.results.map(r => r.url) }, { includeReviewFields: true }), 200, cors, { "Cache-Control": "no-store" });
 }
 
 // ---------------------------------------------------------------------------
@@ -405,7 +433,7 @@ async function handleAdminUpdateSources(id, request, db, cors) {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-function formatPerson(row, crimeTypesMap, sourcesMap) {
+function formatPerson(row, crimeTypesMap, sourcesMap, { includeReviewFields = false } = {}) {
   const person = {
     id: row.id,
     name: row.name,
@@ -422,7 +450,10 @@ function formatPerson(row, crimeTypesMap, sourcesMap) {
     crimeTypes: crimeTypesMap[row.id] || [],
     sources: sourcesMap[row.id] || [],
   };
-  // Only include crimeDescription when available (single-person endpoint)
+  if (includeReviewFields) {
+    person.lastReviewedAt = row.last_reviewed_at || null;
+    person.flaggedReason = row.flagged_reason || null;
+  }
   if (row.crime_description !== undefined) {
     person.crimeDescription = row.crime_description;
   }
