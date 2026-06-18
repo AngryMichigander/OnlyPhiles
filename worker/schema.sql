@@ -16,7 +16,8 @@ CREATE TABLE IF NOT EXISTS people (
   event_date TEXT,
   enabled INTEGER NOT NULL DEFAULT 1, -- 0 = hidden from public, 1 = visible
   last_reviewed_at TEXT, -- ISO 8601 timestamp; NULL = never reviewed
-  flagged_reason TEXT    -- free-text reason an admin flagged this entry; NULL = not flagged
+  flagged_reason TEXT,   -- free-text reason an admin flagged this entry; NULL = not flagged
+  last_reviewed_by TEXT  -- email from verified CF Access JWT; 'shared-secret' for X-Admin-Secret; NULL = unknown
 );
 
 CREATE TABLE IF NOT EXISTS crime_types (
@@ -49,3 +50,4 @@ CREATE INDEX IF NOT EXISTS idx_people_flagged
   ON people(flagged_reason)
   WHERE flagged_reason IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_people_last_reviewed ON people(last_reviewed_at);
+CREATE INDEX IF NOT EXISTS idx_people_last_reviewed_by ON people(last_reviewed_by);

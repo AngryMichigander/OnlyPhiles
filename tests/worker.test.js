@@ -1,5 +1,12 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
+
+vi.mock("../worker/lib/jwt.js", () => ({
+  verifyAccessJwt: vi.fn(),
+  clearJwksCache: vi.fn(),
+}));
+
 import worker, { formatPerson, addInFilter } from "../worker/index.js";
+import { verifyAccessJwt } from "../worker/lib/jwt.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -138,7 +145,7 @@ describe("formatPerson", () => {
     expect(result.eventDate).toBeNull();
   });
 
-  it("includes lastReviewedAt and flaggedReason when includeReviewFields=true", () => {
+  it("includes lastReviewedAt, flaggedReason, lastReviewedBy when includeReviewFields=true", () => {
     const result = formatPerson(
       {
         id: "a",
@@ -146,6 +153,7 @@ describe("formatPerson", () => {
         status: "alleged",
         last_reviewed_at: "2026-06-18T12:34:56Z",
         flagged_reason: "[P0] convicted-no-conviction-year",
+        last_reviewed_by: "alice@example.com",
       },
       {},
       {},
@@ -153,9 +161,10 @@ describe("formatPerson", () => {
     );
     expect(result.lastReviewedAt).toBe("2026-06-18T12:34:56Z");
     expect(result.flaggedReason).toBe("[P0] convicted-no-conviction-year");
+    expect(result.lastReviewedBy).toBe("alice@example.com");
   });
 
-  it("omits lastReviewedAt and flaggedReason by default", () => {
+  it("omits lastReviewedAt, flaggedReason, lastReviewedBy by default", () => {
     const result = formatPerson(
       {
         id: "a",
@@ -163,23 +172,33 @@ describe("formatPerson", () => {
         status: "alleged",
         last_reviewed_at: "2026-06-18T12:34:56Z",
         flagged_reason: "[P0] flag",
+        last_reviewed_by: "alice@example.com",
       },
       {},
       {},
     );
     expect(result).not.toHaveProperty("lastReviewedAt");
     expect(result).not.toHaveProperty("flaggedReason");
+    expect(result).not.toHaveProperty("lastReviewedBy");
   });
 
   it("normalizes null/empty review fields to null when includeReviewFields=true", () => {
     const result = formatPerson(
-      { id: "a", name: "A", status: "alleged", last_reviewed_at: null, flagged_reason: "" },
+      {
+        id: "a",
+        name: "A",
+        status: "alleged",
+        last_reviewed_at: null,
+        flagged_reason: "",
+        last_reviewed_by: null,
+      },
       {},
       {},
       { includeReviewFields: true },
     );
     expect(result.lastReviewedAt).toBeNull();
     expect(result.flaggedReason).toBeNull();
+    expect(result.lastReviewedBy).toBeNull();
   });
 });
 
@@ -790,12 +809,13 @@ describe("Review fields auto-stamp", () => {
     expect(lraCount).toBe(1);
   });
 
-  it("auto-stamps even on empty PATCH body (mark-as-reviewed shortcut)", async () => {
+  it("auto-stamps last_reviewed_at and last_reviewed_by on empty PATCH body (mark-as-reviewed shortcut)", async () => {
     const db = spyDB({ id: "test-person" });
     const res = await worker.fetch(patchReq({}), mockEnv({ DB: db }));
     expect(res.status).toBe(200);
     const updateBind = db._captured.binds.find(b => b.sql.startsWith("UPDATE people"));
-    expect(updateBind.sql).toBe("UPDATE people SET last_reviewed_at = ? WHERE id = ?");
+    expect(updateBind.sql).toBe("UPDATE people SET last_reviewed_at = ?, last_reviewed_by = ? WHERE id = ?");
+    expect(updateBind.args).toContain("shared-secret");
   });
 
   it("accepts camelCase lastReviewedAt key (matches existing snake/camel handling)", async () => {
@@ -891,7 +911,7 @@ describe("Admin list filters", () => {
     expect(selectBind.sql).not.toContain("p.enabled = 0");
   });
 
-  it("admin list SELECT includes last_reviewed_at and flagged_reason columns", async () => {
+  it("admin list SELECT includes last_reviewed_at, flagged_reason, last_reviewed_by columns", async () => {
     const db = spyListDB();
     const res = await worker.fetch(
       req("/api/admin/people", {
@@ -904,13 +924,14 @@ describe("Admin list filters", () => {
     const dataSelectBind = db._captured.binds.find(b => /^SELECT p\.id/.test(b.sql));
     expect(dataSelectBind.sql).toContain("p.last_reviewed_at");
     expect(dataSelectBind.sql).toContain("p.flagged_reason");
+    expect(dataSelectBind.sql).toContain("p.last_reviewed_by");
   });
 
-  it("admin list response includes lastReviewedAt and flaggedReason fields", async () => {
+  it("admin list response includes lastReviewedAt, flaggedReason, lastReviewedBy fields", async () => {
     const db = spyListDB({
       batchResults: [
         { results: [{ total: 1 }] },
-        { results: [{ id: "a", name: "A", status: "alleged", enabled: 1, still_in_office: null, last_reviewed_at: "2026-06-18T00:00:00Z", flagged_reason: "[P0] test" }] },
+        { results: [{ id: "a", name: "A", status: "alleged", enabled: 1, still_in_office: null, last_reviewed_at: "2026-06-18T00:00:00Z", flagged_reason: "[P0] test", last_reviewed_by: "alice@example.com" }] },
         { results: [] },
         { results: [] },
       ],
@@ -926,13 +947,14 @@ describe("Admin list filters", () => {
     const body = await res.json();
     expect(body.results[0].lastReviewedAt).toBe("2026-06-18T00:00:00Z");
     expect(body.results[0].flaggedReason).toBe("[P0] test");
+    expect(body.results[0].lastReviewedBy).toBe("alice@example.com");
   });
 
-  it("public list response strips lastReviewedAt and flaggedReason fields", async () => {
+  it("public list response strips lastReviewedAt, flaggedReason, lastReviewedBy fields", async () => {
     const db = spyListDB({
       batchResults: [
         { results: [{ total: 1 }] },
-        { results: [{ id: "a", name: "A", status: "alleged", enabled: 1, still_in_office: null, last_reviewed_at: "2026-06-18T00:00:00Z", flagged_reason: "[P0] test" }] },
+        { results: [{ id: "a", name: "A", status: "alleged", enabled: 1, still_in_office: null, last_reviewed_at: "2026-06-18T00:00:00Z", flagged_reason: "[P0] test", last_reviewed_by: "alice@example.com" }] },
         { results: [] },
         { results: [] },
       ],
@@ -942,6 +964,201 @@ describe("Admin list filters", () => {
     const body = await res.json();
     expect(body.results[0]).not.toHaveProperty("lastReviewedAt");
     expect(body.results[0]).not.toHaveProperty("flaggedReason");
+    expect(body.results[0]).not.toHaveProperty("lastReviewedBy");
+  });
+});
+
+// Admin authentication strict mode (JWT crypto verification)
+describe("Admin authentication strict mode", () => {
+  const strictEnv = (overrides = {}) => mockEnv({
+    CF_ACCESS_TEAM_DOMAIN: "test.cloudflareaccess.com",
+    CF_ACCESS_AUD: "test-aud",
+    ...overrides,
+  });
+
+  function strictSpyDB(initialPerson) {
+    const captured = { sqls: [], binds: [] };
+    const stmtMethods = {
+      first: async () => initialPerson,
+      all: async () => ({ results: [] }),
+      run: async () => ({ success: true }),
+    };
+    return {
+      _captured: captured,
+      prepare: (sql) => {
+        captured.sqls.push(sql);
+        return {
+          ...stmtMethods,
+          bind: (...args) => {
+            captured.binds.push({ sql, args });
+            return stmtMethods;
+          },
+        };
+      },
+      batch: async (stmts) => stmts.map(() => ({
+        results: [{ id: "test-person", name: "Test", status: "alleged", still_in_office: null, enabled: 1 }],
+      })),
+    };
+  }
+
+  beforeEach(() => {
+    verifyAccessJwt.mockReset();
+  });
+
+  it("accepts a valid JWT and calls verifier with team domain + audience", async () => {
+    verifyAccessJwt.mockResolvedValueOnce({ email: "alice@example.com" });
+    const db = mockDB({ batchResults: [[{ total: 0 }], []] });
+    const res = await worker.fetch(
+      req("/api/admin/people", {
+        method: "GET",
+        headers: { "Cf-Access-Jwt-Assertion": "eyJ.signed.token" },
+      }),
+      strictEnv({ DB: db }),
+    );
+    expect(res.status).toBe(200);
+    expect(verifyAccessJwt).toHaveBeenCalledWith("eyJ.signed.token", {
+      teamDomain: "test.cloudflareaccess.com",
+      audience: "test-aud",
+    });
+  });
+
+  it("accepts a valid JWT via CF_Authorization cookie", async () => {
+    verifyAccessJwt.mockResolvedValueOnce({ email: "bob@example.com" });
+    const db = mockDB({ batchResults: [[{ total: 0 }], []] });
+    const res = await worker.fetch(
+      req("/api/admin/people", {
+        method: "GET",
+        headers: { Cookie: "CF_Authorization=eyJ.cookie.token; other=val" },
+      }),
+      strictEnv({ DB: db }),
+    );
+    expect(res.status).toBe(200);
+    expect(verifyAccessJwt).toHaveBeenCalledWith("eyJ.cookie.token", expect.anything());
+  });
+
+  it("rejects when JWT verification throws and no fallback credential is present", async () => {
+    verifyAccessJwt.mockRejectedValueOnce(new Error("JWT expired"));
+    const res = await worker.fetch(
+      req("/api/admin/people", {
+        method: "GET",
+        headers: { "Cf-Access-Jwt-Assertion": "eyJ.expired.token" },
+      }),
+      strictEnv(),
+    );
+    expect(res.status).toBe(401);
+  });
+
+  it("falls through to X-Admin-Secret when JWT verification fails", async () => {
+    verifyAccessJwt.mockRejectedValueOnce(new Error("JWT expired"));
+    const db = mockDB({ batchResults: [[{ total: 0 }], []] });
+    const res = await worker.fetch(
+      req("/api/admin/people", {
+        method: "GET",
+        headers: {
+          "Cf-Access-Jwt-Assertion": "eyJ.expired.token",
+          "X-Admin-Secret": "test-secret-xyz",
+        },
+      }),
+      strictEnv({ DB: db }),
+    );
+    expect(res.status).toBe(200);
+  });
+
+  it("captures verified email as actor written to last_reviewed_by on PATCH", async () => {
+    verifyAccessJwt.mockResolvedValueOnce({ email: "alice@example.com" });
+    const db = strictSpyDB({ id: "test-person" });
+    const res = await worker.fetch(
+      req("/api/admin/people/test-person", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          "Cf-Access-Jwt-Assertion": "eyJ.signed.token",
+        },
+        body: JSON.stringify({ name: "Updated" }),
+      }),
+      strictEnv({ DB: db }),
+    );
+    expect(res.status).toBe(200);
+    const updateBind = db._captured.binds.find(b => b.sql.startsWith("UPDATE people"));
+    expect(updateBind.sql).toContain("last_reviewed_by = ?");
+    expect(updateBind.args).toContain("alice@example.com");
+  });
+
+  it("falls back to sub claim when email is missing", async () => {
+    verifyAccessJwt.mockResolvedValueOnce({ sub: "user-uuid-123" });
+    const db = strictSpyDB({ id: "test-person" });
+    const res = await worker.fetch(
+      req("/api/admin/people/test-person", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          "Cf-Access-Jwt-Assertion": "eyJ.signed.token",
+        },
+        body: JSON.stringify({}),
+      }),
+      strictEnv({ DB: db }),
+    );
+    expect(res.status).toBe(200);
+    const updateBind = db._captured.binds.find(b => b.sql.startsWith("UPDATE people"));
+    expect(updateBind.args).toContain("user-uuid-123");
+  });
+
+  it("falls back to 'verified-jwt' literal when claims have neither email nor sub", async () => {
+    verifyAccessJwt.mockResolvedValueOnce({ aud: "test-aud" });
+    const db = strictSpyDB({ id: "test-person" });
+    const res = await worker.fetch(
+      req("/api/admin/people/test-person", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          "Cf-Access-Jwt-Assertion": "eyJ.signed.token",
+        },
+        body: JSON.stringify({}),
+      }),
+      strictEnv({ DB: db }),
+    );
+    expect(res.status).toBe(200);
+    const updateBind = db._captured.binds.find(b => b.sql.startsWith("UPDATE people"));
+    expect(updateBind.args).toContain("verified-jwt");
+  });
+
+  it("X-Admin-Secret path records actor as 'shared-secret' in strict mode (no JWT)", async () => {
+    const db = strictSpyDB({ id: "test-person" });
+    const res = await worker.fetch(
+      req("/api/admin/people/test-person", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Admin-Secret": "test-secret-xyz",
+        },
+        body: JSON.stringify({}),
+      }),
+      strictEnv({ DB: db }),
+    );
+    expect(res.status).toBe(200);
+    const updateBind = db._captured.binds.find(b => b.sql.startsWith("UPDATE people"));
+    expect(updateBind.args).toContain("shared-secret");
+    expect(verifyAccessJwt).not.toHaveBeenCalled();
+  });
+
+  it("explicit last_reviewed_at=null clears last_reviewed_by too", async () => {
+    verifyAccessJwt.mockResolvedValueOnce({ email: "alice@example.com" });
+    const db = strictSpyDB({ id: "test-person" });
+    const res = await worker.fetch(
+      req("/api/admin/people/test-person", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          "Cf-Access-Jwt-Assertion": "eyJ.signed.token",
+        },
+        body: JSON.stringify({ last_reviewed_at: null }),
+      }),
+      strictEnv({ DB: db }),
+    );
+    expect(res.status).toBe(200);
+    const updateBind = db._captured.binds.find(b => b.sql.startsWith("UPDATE people"));
+    expect(updateBind.sql).toContain("last_reviewed_by = ?");
+    expect(updateBind.args).toContain(null);
   });
 });
 
